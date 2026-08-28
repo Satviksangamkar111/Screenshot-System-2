@@ -4,6 +4,12 @@ Explores an enterprise web application (SAP Fiori/UI5), interacts with every
 relevant control, captures screenshot evidence, and assembles a Word document
 matching the format of the hand-made comparison documents.
 
+> **For anyone using this from a browser once it's hosted: you need nothing
+> installed.** No Node.js, no Chrome/Edge, no account, no extension — not on
+> your own computer. Just open the server's URL in whatever browser you
+> already have. Node.js and a browser are required only on the one machine
+> that *runs* the server — see [Requirements](#requirements).
+
 ## How it works
 
 Two stages, with a durable artifact between them:
@@ -260,14 +266,20 @@ H4  Sub-page or dialog reached from that page
 
 ## Requirements
 
-**These apply only to the one machine running the server.** Once it's hosted,
-anyone using the web interface from their own computer needs:
+**These apply only to the one machine running the server — not to the people
+using it.**
 
-- **Nothing installed** — no Node, no Chrome/Edge on their end, no account.
+For everyone else, using the web interface from their own computer once it's
+hosted:
+
+- **No Node.js.**
+- **No Chrome or Edge install of their own** — any browser they already have
+  works.
+- **No account, no extension, no dependency of any kind.**
 - Just a browser pointed at the server's address.
-- This works because the served page has **zero external dependencies** — no
-  CDN scripts, no fonts, nothing fetched from the internet — so it behaves
-  identically on a locked-down corporate machine.
+- This works because the served page itself has **zero external
+  dependencies** — no CDN scripts, no fonts, nothing fetched from the
+  internet — so it behaves identically on a locked-down corporate machine.
 
 See [Running as a shared server](#running-as-a-shared-server) for the one
 extra thing the *host* machine needs so other people can reach it (a firewall
