@@ -1,6 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import http from 'node:http';
+import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -13,6 +14,7 @@ import {
   startJob,
   startStandaloneLogin,
 } from './jobs.js';
+import { userIdOf } from './userId.js';
 import { log } from '../util/logger.js';
 
 /**
@@ -120,21 +122,26 @@ async function handle(
   }
 
   // --- does this host already have a saved session? -------------------------
+  // Scoped to this browser: on a server shared by several people, whether
+  // *someone* has signed in to a host is not the question — whether *this*
+  // person has is. See `userIdOf`.
   if (req.method === 'GET' && route === '/api/session') {
+    const userId = userIdOf(req, res);
     const target = validUrl(url.searchParams.get('url'));
     if (!target) return sendJson(res, 400, { error: 'Invalid URL' });
-    return sendJson(res, 200, { hasSession: hasSessionFor(target) });
+    return sendJson(res, 200, { hasSession: hasSessionFor(target, userId) });
   }
 
   // --- interactive sign-in ----------------------------------------------------
   // Returns immediately with an id: the operator signs in through the live
   // view (below), which needs the id before sign-in completes, not after.
   if (req.method === 'POST' && route === '/api/login') {
+    const userId = userIdOf(req, res);
     const body = (await readBody(req)) as { url?: string };
     const target = validUrl(body.url);
     if (!target) return sendJson(res, 400, { error: 'Invalid URL' });
 
-    const loginId = startStandaloneLogin(target);
+    const loginId = startStandaloneLogin(target, userId);
     return sendJson(res, 202, { loginId });
   }
 
@@ -195,6 +202,7 @@ async function handle(
 
   // --- start a job ----------------------------------------------------------
   if (req.method === 'POST' && route === '/api/generate') {
+    const userId = userIdOf(req, res);
     const body = (await readBody(req)) as {
       oldUrl?: string;
       newUrl?: string;
@@ -218,6 +226,7 @@ async function handle(
       ...(newUrl ? { newUrl } : {}),
       ...(body.title ? { title: body.title } : {}),
       dataEntryMode,
+      userId,
     });
     return sendJson(res, 202, {
       jobId: job.id,
@@ -348,12 +357,58 @@ async function handle(
   sendJson(res, 404, { error: 'Not found' });
 }
 
-/** Starts the server and logs the address to open. */
+/** Every non-internal IPv4 address this machine currently has. */
+function lanAddresses(): string[] {
+  const out: string[] = [];
+  for (const addrs of Object.values(networkInterfaces())) {
+    for (const addr of addrs ?? []) {
+      if (addr.family === 'IPv4' && !addr.internal) out.push(addr.address);
+    }
+  }
+  return out;
+}
+
+/**
+ * Starts the server and logs the address(es) to open.
+ *
+ * `listen(port, callback)` with no host binds every interface by default, so
+ * this is already reachable from other machines on the network the moment it
+ * starts — logging only `localhost` would hide that from whoever runs this as
+ * a shared server for a team, leaving them to discover the LAN address some
+ * other way.
+ */
 export function serve(port: number): Promise<http.Server> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = createServer();
+
+    /*
+     * With no listener here, a bind failure (almost always EADDRINUSE — this
+     * server, or something else, already on that port) surfaces as an
+     * unhandled 'error' event: Node prints a raw stack trace and the process
+     * exits non-deterministically, which is a poor first thing to hit when
+     * this is set up to start unattended (a Scheduled Task, a service). The
+     * top-level handler in index.ts already turns a rejected `serve()` into a
+     * clean one-line error and exit code 1 — this just gives it something
+     * worth printing.
+     */
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        reject(
+          new Error(
+            `port ${port} is already in use — is the server already running? ` +
+              `Stop it first, or pass -p <port> to use a different one.`,
+          ),
+        );
+      } else {
+        reject(err);
+      }
+    });
+
     server.listen(port, () => {
       log.ok(`UI Documentation Engine — open http://localhost:${port}`);
+      for (const addr of lanAddresses()) {
+        log.info(`  also reachable on this network at http://${addr}:${port}`);
+      }
       resolve(server);
     });
   });

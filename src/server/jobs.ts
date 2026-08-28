@@ -118,9 +118,9 @@ export function resolveManualStep(
   return gate.resolve(controlId, action);
 }
 
-/** Reports whether a saved session already exists for a URL. */
-export function hasSessionFor(url: string): boolean {
-  const app = buildAdHocConfig({ newUrl: url }, 'probe');
+/** Reports whether this user already has a saved session for a URL. */
+export function hasSessionFor(url: string, userId?: string): boolean {
+  const app = buildAdHocConfig({ newUrl: url, userId }, 'probe');
   return existsSync(storageStatePath(app, 'new'));
 }
 
@@ -395,11 +395,11 @@ export function getStandaloneLoginOutcome(id: string): StandaloneLoginOutcome | 
  * the id right away, before sign-in completes, so it can open the live view
  * while the operator is still signing in — not after.
  */
-export function startStandaloneLogin(url: string): string {
+export function startStandaloneLogin(url: string, userId?: string): string {
   const id = randomUUID();
   standaloneLoginOutcomes.set(id, { status: 'pending' });
 
-  const app = buildAdHocConfig({ newUrl: url }, 'login');
+  const app = buildAdHocConfig({ newUrl: url, userId }, 'login');
   captureLogin(app, 'new', {
     onRemoteControlReady: (remote) => {
       loginRemoteControls.set(id, remote);

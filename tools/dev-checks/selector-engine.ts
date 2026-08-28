@@ -1,10 +1,14 @@
-import { launchChrome } from './chrome-launcher.js';
-import { CDPClient } from './cdp-client.js';
-import { CDPSession } from './cdp-session.js';
-import { PageShim } from './page-shim.js';
+import { launchChrome } from '../../src/automation/chrome-launcher.js';
+import { CDPClient } from '../../src/automation/cdp-client.js';
+import { CDPSession } from '../../src/automation/cdp-session.js';
+import { PageShim } from '../../src/automation/page-shim.js';
 
 /**
- * Covers the Playwright selector syntax the interaction layer depends on:
+ * Development regression check for locator-shim.ts's selector engine — not
+ * part of `src/`, so it never ships in `dist/`, and not wired to any CI step;
+ * run by hand with `npm run check:selectors` after touching selector
+ * resolution. Covers the Playwright selector syntax the interaction layer
+ * depends on:
  * the chooser-dialog selectors (`:text-is`), the message-dialog OK button
  * (`:visible` + hasText filter) and the overlay close buttons (`:has-text`).
  */

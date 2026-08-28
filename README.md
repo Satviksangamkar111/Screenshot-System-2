@@ -253,6 +253,16 @@ read-only queries and are permitted.
 
 ## Requirements
 
+These apply to the one machine **running** the server. Once it is hosted,
+anyone using the web interface from their own computer needs **nothing
+installed at all** — no Node, no Chrome/Edge on their end, no account, just a
+browser pointed at the server's address. The served page has zero external
+dependencies (no CDN scripts, no fonts, nothing fetched from the internet), so
+it works the same on a locked-down corporate machine as anywhere else. See
+[Running as a shared server](#running-as-a-shared-server) for the one thing
+the *host* machine additionally needs for other people to reach it — a
+firewall rule — which is unrelated to what those people need on their side.
+
 | Requirement | Why |
 |---|---|
 | **Node.js ≥ 20** | Runs the engine and the web server |
@@ -288,9 +298,11 @@ Document**. Leave a column empty to document only that one version.
 Sign-in is handled for you: before any capture starts, the engine checks each
 site headlessly, and for any that present a sign-in screen it shows a live
 view in the page and waits. Once every sign-in is complete the capture runs automatically.
-Sessions are saved **per origin** under `auth/.storage/`, so a host is signed in
-to once and reused afterwards — and two versions on the same host only require
-one sign-in.
+Sessions are saved under `auth/.storage/<browser>/<origin>.json`, keyed by
+*browser* first, then origin — see [Running as a shared
+server](#running-as-a-shared-server) for why the browser is part of the key —
+so a host is signed in to once per browser and reused afterwards, and two
+versions on the same host only require one sign-in.
 
 The live view is embedded in the page, and the same view can be opened in its
 own tab at `/live/jobs/<jobId>` — the Progress log prints the link when a
@@ -301,6 +313,76 @@ expired session mid-capture reopens the same flow and retries the capture.
 
 URLs can also be prefilled for sharing:
 `http://localhost:5173/?old=<encoded>&new=<encoded>`
+
+### Running as a shared server
+
+`server.listen(port)` binds every network interface by default, so this is
+already reachable from other machines the moment it starts — the startup log
+prints the LAN address(es) alongside `localhost` for exactly this reason.
+Point a team at one machine's address instead of everyone running their own
+copy.
+
+**Each browser gets its own sessions.** The first request sets an opaque,
+`HttpOnly` id cookie (`src/server/userId.ts`) with no login of its own — every
+saved-session path is namespaced under it (`auth/.storage/<id>/<origin>.json`).
+Without this, sessions were keyed by origin alone: the first person to sign in
+to a host would silently sign in *for every later job from every other user*
+against that host, each one running under that first person's identity with
+no indication it happened. Two people at two browsers hitting the same shared
+server now get two independent SAP sessions, never each other's.
+
+This does **not** gate who can reach the server or start a job — anyone who
+can reach the address can use it, the same as any other tool run on a trusted
+internal network with no login screen of its own.
+
+**Windows Firewall must allow it in.** Binding every interface makes the
+server reachable *from this machine*, but a request from a genuinely
+different machine still passes through Windows Firewall first, which blocks
+unrecognised inbound connections by default — confirmed on a real deployment
+that had no allow rule for Node at all, plus an active **block** rule for it
+on the Public profile from an earlier "Block access" click on Windows' own
+connect-time prompt. `install-service.ps1` adds an inbound allow rule scoped
+to the **Private** profile (see below) whenever it is run elevated; run it
+elevated, or add the rule by hand:
+
+```powershell
+New-NetFirewallRule -DisplayName "UI Documentation Engine (port 5173)" `
+  -Direction Inbound -Protocol TCP -LocalPort 5173 -Action Allow -Profile Private
+```
+
+Check which profile a network is on with `Get-NetConnectionProfile` before
+relying on this — scoping to Private only opens the port on networks Windows
+already considers trusted (a corporate LAN), not on public/guest Wi-Fi, even
+from the same machine.
+
+**Keeping it running.** A plain `npm run serve` stops the moment its terminal
+closes or the process dies for any reason, with nothing bringing it back until
+someone notices. `scripts/run-server.ps1` wraps it in a restart loop and logs
+to `logs/server-<date>.log` (there is no terminal for an unattended process to
+print to); `scripts/install-service.ps1` registers that wrapper as a Windows
+Scheduled Task so it starts on its own, using only what Windows already
+ships — no service-manager tool becomes a new dependency for the host any more
+than for the people using it from a browser.
+
+```powershell
+# Starts the server whenever you log in to this machine. No elevation needed
+# for the task itself, but run this elevated too if you want the firewall
+# rule added automatically — otherwise add it by hand (see above).
+.\scripts\install-service.ps1
+
+# Starts at boot, as SYSTEM, before anyone logs in — genuinely unattended.
+# Run this one from an elevated ("Run as Administrator") PowerShell; the
+# firewall rule is added as part of the same elevated run.
+.\scripts\install-service.ps1 -AtStartup
+
+# Remove the scheduled task (auth/.storage/, output/ and logs/ are untouched).
+.\scripts\uninstall-service.ps1
+```
+
+Starting a second instance on a port already in use fails with a clear
+`port 5173 is already in use` message and a non-zero exit code, rather than a
+raw stack trace — useful when `install-service.ps1` is about to be pointed at
+a port someone left a manual `npm run serve` running on.
 
 ## Command line
 
@@ -374,6 +456,12 @@ npm run run -- --app fixture
 
 Expect 16 documentation points per version, 0 exceptions, and a Full Page
 screenshot with all fields populated and **no** "RECORD SAVED" text.
+
+`npm run check:selectors` is a narrower, faster check of just the selector
+engine (`src/automation/locator-shim.ts`) — the `:visible`, `:text-is()` and
+`:has-text()` pseudo-classes described above — against the exact selectors
+the dialog/chooser code uses. It lives outside `src/` (`tools/dev-checks/`),
+so it never ships in `dist/`; run it after touching selector resolution.
 
 ## Troubleshooting
 

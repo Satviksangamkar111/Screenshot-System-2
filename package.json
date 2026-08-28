@@ -15,7 +15,8 @@
     "assemble": "tsx src/index.ts assemble",
     "run": "tsx src/index.ts run",
     "serve": "tsx src/index.ts serve",
-    "cli": "tsx src/index.ts"
+    "cli": "tsx src/index.ts",
+    "check:selectors": "tsx tools/dev-checks/selector-engine.ts"
   },
   "dependencies": {
     "commander": "^12.1.0",

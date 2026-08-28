@@ -9,7 +9,29 @@ import type { VersionId } from '../types.js';
  * The web front end lets a user document a workflow without first authoring a
  * YAML file. Sessions are keyed by origin rather than by application name, so
  * signing in to a host once serves every later job against that host.
+ *
+ * On a server shared by more than one person, "signing in once serves every
+ * later job" has to mean *for that person*, not for everyone — so the storage
+ * path is namespaced under `userId` too (see `../server/userId.ts`). On a
+ * single-user deployment this still costs nothing: one person still only
+ * signs in to a host once.
  */
+
+/**
+ * Confines `userId` to something safe to use as a single path segment.
+ *
+ * `userId` reaches here from a cookie value, which is client-supplied and
+ * therefore untrusted no matter how it was minted — validating again at the
+ * point it is turned into a path is what actually matters, not trusting the
+ * cookie-issuing code to always have done so. Anything not already the shape
+ * `userIdOf` mints (a UUID) collapses to a fixed fallback rather than being
+ * used verbatim, which rules out both path traversal (`../../etc`) and two
+ * different malformed values colliding on the same directory by accident.
+ */
+function safeUserId(userId: string | undefined): string {
+  if (userId && /^[a-f0-9-]{16,64}$/i.test(userId)) return userId;
+  return 'shared';
+}
 
 /** Stable, filesystem-safe identifier for a URL's origin. */
 export function originSlug(url: string): string {
@@ -52,19 +74,28 @@ export interface AdHocInput {
   newUrl?: string;
   title?: string;
   dataEntryMode?: 'automatic' | 'manual';
+  /** Identifies which browser this request came from; see `safeUserId`. */
+  userId?: string;
 }
 
 /** Builds a validated config covering only the versions actually supplied. */
 export function buildAdHocConfig(input: AdHocInput, jobId: string): AppConfig {
   const versions: Record<string, { url: string; storageState: string }> = {};
+  const userId = safeUserId(input.userId);
 
   for (const version of ['old', 'new'] as VersionId[]) {
     const url = version === 'old' ? input.oldUrl : input.newUrl;
     if (!url?.trim()) continue;
     versions[version] = {
       url: url.trim(),
-      // Keyed by origin so a sign-in is reused across jobs and versions.
-      storageState: path.join('auth', '.storage', `${originSlug(url)}.json`),
+      // Keyed by user then origin: reused across jobs and versions for the
+      // same person, isolated from every other person on a shared server.
+      storageState: path.join(
+        'auth',
+        '.storage',
+        userId,
+        `${originSlug(url)}.json`,
+      ),
     };
   }
 
